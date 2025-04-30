@@ -71,6 +71,23 @@ public class StarSystemManager : MonoBehaviour
             starSystemContainer.position = Vector3.zero;
         }
 
+        // Get configuration from GalaxyGenerator if available
+        if (GalaxyGenerator.Instance != null)
+        {
+            GalaxyGenerator.StarSystemConfig config = GalaxyGenerator.Instance.solarSystemConfig;
+            
+            // Apply config settings
+            minPlanets = config.minPlanetsPerSystem;
+            maxPlanets = config.maxPlanetsPerSystem;
+            minOrbitRadius = config.minOrbitRadius;
+            maxOrbitRadius = config.maxOrbitRadius;
+            planetScaleMin = config.minPlanetScale;
+            planetScaleMax = config.maxPlanetScale;
+            orbitTraceWidth = config.orbitTraceWidth;
+            orbitTraceAlpha = config.orbitTraceAlpha;
+            orbitTraceSegments = config.orbitTraceSegments;
+        }
+
         // Create orbit trace material if not assigned
         if (orbitTraceMaterial == null)
         {
@@ -140,6 +157,28 @@ public class StarSystemManager : MonoBehaviour
                 planetGenerator.noiseStrength = Random.Range(0.05f, 0.2f);
                 planetGenerator.GeneratePlanet();
             }
+            
+            // Add PlanetInteraction component for handling clicks and interactions
+            PlanetInteraction planetInteraction = planet.GetComponent<PlanetInteraction>();
+            if (planetInteraction == null)
+            {
+                planetInteraction = planet.AddComponent<PlanetInteraction>();
+            }
+            
+            // Initialize planet interaction properties
+            planetInteraction.planetName = $"Planet_{linkedGalaxyStarData?.systemName}_{i + 1}";
+            planetInteraction.planetIndex = i + 1;
+            
+            // Ensure the planet has a collider for interaction
+            SphereCollider collider = planet.GetComponent<SphereCollider>();
+            if (collider == null)
+            {
+                collider = planet.AddComponent<SphereCollider>();
+                collider.radius = 0.5f; // Half the default scale
+            }
+            
+            // Generate random properties for the planet
+            planetInteraction.GenerateRandomProperties();
 
             // Create orbit trace visualization
             if (showOrbitTraces)
@@ -222,6 +261,45 @@ public class StarSystemManager : MonoBehaviour
     {
         gameObject.SetActive(true);
         isActive = true;
+        
+        // Find and configure the camera to focus on the central star
+        Camera mainCamera = Camera.main;
+        if (mainCamera != null)
+        {
+            CameraController cameraController = mainCamera.GetComponent<CameraController>();
+            if (cameraController != null)
+            {
+                // Get the star position and center the camera on it
+                Vector3 starPosition = GetStarPosition();
+                
+                // Explicitly set the target to the star position
+                cameraController.SetTarget(starPosition);
+                
+                // Reset the camera distance and angles to provide a good view of the star system
+                cameraController.currentDistance = 15f;
+                cameraController.currentPitch = 45f;
+                cameraController.currentAzimuth = 0f;
+                
+                // Apply the changes immediately
+                cameraController.ResetCamera();
+                
+                Debug.Log($"Camera centered on star at position: {starPosition}, distance: {cameraController.currentDistance}");
+                
+                // Store the initial camera state in case we want to return to it later
+                if (GalaxyGenerator.Instance != null)
+                {
+                    GalaxyGenerator.Instance.SetCurrentActiveStarSystem(this);
+                }
+            }
+            else
+            {
+                // If no camera controller, at least point the camera at the star
+                mainCamera.transform.position = GetStarPosition() + new Vector3(0, 10, -15);
+                mainCamera.transform.LookAt(GetStarPosition());
+                Debug.Log("No CameraController found, manually positioning camera");
+            }
+        }
+        
         Debug.Log($"Star system {linkedGalaxyStarData?.systemName} activated");
     }
 

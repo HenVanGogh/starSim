@@ -66,6 +66,52 @@ public class CameraController : MonoBehaviour
         ApplyCameraTransform();
     }
 
+    /// <summary>
+    /// Sets the camera target position and forces an update
+    /// </summary>
+    public void SetTarget(Vector3 newTarget)
+    {
+        targetPosition = newTarget;
+        UpdateCameraPosition();
+    }
+
+    /// <summary>
+    /// Forces an immediate update of camera position based on current parameters
+    /// </summary>
+    public void UpdateCameraPosition()
+    {
+        ApplyCameraTransform();
+    }
+    
+    /// <summary>
+    /// Gets the current camera state for saving when navigating between views
+    /// </summary>
+    public void GetCameraState(out Vector3 target, out float distance, out float pitch, out float azimuth)
+    {
+        target = targetPosition;
+        distance = _currentDistance;
+        pitch = _currentPitch;
+        azimuth = _currentAzimuth;
+        
+        Debug.Log($"Camera state saved: target:{target}, distance:{distance}, pitch:{pitch}, azimuth:{azimuth}");
+    }
+    
+    /// <summary>
+    /// Sets the camera state for when returning to a view
+    /// </summary>
+    public void SetCameraState(Vector3 target, float distance, float pitch, float azimuth)
+    {
+        targetPosition = target;
+        _currentDistance = Mathf.Clamp(distance, minDistance, maxDistance);
+        _currentPitch = Mathf.Clamp(pitch, minPitch, maxPitch);
+        _currentAzimuth = azimuth;
+        
+        // Apply immediately
+        ApplyCameraTransform();
+        
+        Debug.Log($"Camera state restored: target:{target}, distance:{distance}, pitch:{pitch}, azimuth:{azimuth}");
+    }
+
     void Start()
     {
         // Initialize camera state

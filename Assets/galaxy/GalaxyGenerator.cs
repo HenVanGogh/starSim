@@ -7,6 +7,63 @@ public class GalaxyGenerator : MonoBehaviour
     // --- Singleton Pattern ---
     public static GalaxyGenerator Instance { get; private set; }
 
+    [System.Serializable]
+    public class StarSystemConfig
+    {
+        [Header("Solar System Generation")]
+        [Tooltip("Minimum number of planets per star system")]
+        [Range(0, 8)]
+        public int minPlanetsPerSystem = 1;
+
+        [Tooltip("Maximum number of planets per star system")]
+        [Range(1, 12)]
+        public int maxPlanetsPerSystem = 5;
+
+        [Tooltip("Minimum orbit radius for planets (distance from star)")]
+        [Range(2f, 10f)]
+        public float minOrbitRadius = 3f;
+
+        [Tooltip("Maximum orbit radius for planets (distance from star)")]
+        [Range(5f, 30f)]
+        public float maxOrbitRadius = 15f;
+
+        [Tooltip("Minimum distance between adjacent planetary orbits")]
+        [Range(0.5f, 5f)]
+        public float minOrbitSeparation = 1.5f;
+
+        [Tooltip("Minimum scale factor for planets")]
+        [Range(0.2f, 2f)]
+        public float minPlanetScale = 0.5f;
+
+        [Tooltip("Maximum scale factor for planets")]
+        [Range(0.5f, 5f)]
+        public float maxPlanetScale = 2.5f;
+        
+        [Tooltip("Scale factor for the central star")]
+        [Range(1f, 10f)]
+        public float starScaleFactor = 3f;
+        
+        [Tooltip("Allow planets to have moons")]
+        public bool enableMoons = false;
+        
+        [Tooltip("Maximum number of moons per planet")]
+        [Range(0, 5)]
+        public int maxMoonsPerPlanet = 2;
+        
+        [Header("Orbit Visualization")]
+        [Tooltip("Width of orbit trace lines")]
+        [Range(0.01f, 0.5f)]
+        public float orbitTraceWidth = 0.05f;
+        
+        [Tooltip("Transparency of orbit traces (0-1)")]
+        [Range(0f, 1f)]
+        public float orbitTraceAlpha = 0.3f;
+        
+        [Tooltip("Number of segments used to draw orbit circles")]
+        [Range(16, 64)]
+        public int orbitTraceSegments = 32;
+    }
+
     [Header("Generation Settings")]
     [Tooltip("Prefab used to represent a star system. MUST have a Renderer and ideally a StarSystemData component.")]
     public GameObject starPrefab;
@@ -35,6 +92,9 @@ public class GalaxyGenerator : MonoBehaviour
     public float hyperlaneStartWidth = 0.1f;
     public float hyperlaneEndWidth = 0.1f;
     public Color hyperlaneColor = new Color(0.5f, 0.5f, 1f, 0.5f);
+    
+    [Header("Solar System Settings")]
+    public StarSystemConfig solarSystemConfig = new StarSystemConfig();
 
     [Header("Highlighting")]
     [Tooltip("Material to apply to the selected star.")]
@@ -59,7 +119,7 @@ public class GalaxyGenerator : MonoBehaviour
     // Keep track of generated connections (pairs) to avoid duplicates
     private HashSet<(StarSystemData, StarSystemData)> existingConnections = new HashSet<(StarSystemData, StarSystemData)>();
     private GameObject hyperlaneContainer; // Container for visual hyperlanes
-    private StarSystemData currentlySelectedStar = null; // Track selected star for highlighting
+    public StarSystemData currentlySelectedStar = null; // Track selected star for highlighting
 
     private StarSystemData firstSelectedStar = null;
     private bool isWaitingForSecondSelection = false;
@@ -70,8 +130,15 @@ public class GalaxyGenerator : MonoBehaviour
     private float gizmoLineWidth = 0.1f;
 
     // Tracking current active state
-    private bool isGalaxyViewActive = true;
+    public bool isGalaxyViewActive = true;
     private StarSystemManager currentActiveStarSystem = null;
+
+    // Camera controller state for when returning from star systems
+    private Vector3 savedCameraTargetPosition;
+    private float savedCameraDistance = 15f;
+    private float savedCameraPitch = 45f;
+    private float savedCameraAzimuth = 0f;
+    private bool hasSavedCameraControllerState = false;
 
     void Awake()
     {
@@ -288,6 +355,20 @@ public class GalaxyGenerator : MonoBehaviour
     public void SetCurrentActiveStarSystem(StarSystemManager starSystem)
     {
         currentActiveStarSystem = starSystem;
+    }
+
+    /// <summary>
+    /// Stores camera state for later retrieval when returning from a star system
+    /// </summary>
+    public void StoreCameraStateForReturn(Vector3 targetPosition, float distance, float pitch, float azimuth)
+    {
+        savedCameraTargetPosition = targetPosition;
+        savedCameraDistance = distance;
+        savedCameraPitch = pitch;
+        savedCameraAzimuth = azimuth;
+        hasSavedCameraControllerState = true;
+        
+        Debug.Log($"Galaxy: Stored camera state for return - target:{targetPosition}, distance:{distance}, pitch:{pitch}, azimuth:{azimuth}");
     }
 
     /// <summary>

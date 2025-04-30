@@ -1,100 +1,358 @@
 using UnityEngine;
-using System.Collections.Generic;
 
-[RequireComponent(typeof(Renderer))] // Ensure there's a Renderer to change material
-public class StarSystemData : MonoBehaviour
+/// <summary>
+/// Data component attached to each star in the galaxy view.
+/// Handles selection, highlighting, and navigation to detailed view.
+/// </summary>
+public class StarSystemData : MonoBehaviour, IClickableObject
 {
-    // Static reference to the galaxy manager for navigation
+    // --- Static References ---
     public static GalaxyGenerator galaxyManager;
 
-    [Header("System Info")]
+    // --- Inspector Fields ---
+    [Header("Star Data")]
     public string systemName = "Unnamed System";
-
-    [Header("Gameplay Data")]
-    public Color starColor = Color.white;
-
-    // Reference to detailed star system
+    public int systemResourceValue = 0;
+    public float systemHabitability = 0f;
+    
+    [Header("Star Type")]
+    public StarType starType = StarType.MainSequence;
+    
+    // Detailed system reference
     private StarSystemManager detailedSystem;
-
-    // Camera position and rotation when entering the star system
+    
+    // Selection state
+    [SerializeField] private bool _isSelected = false;
+    
+    // Implementation of IClickableObject interface
+    public bool isSelected 
+    { 
+        get { return _isSelected; } 
+        set { 
+            _isSelected = value;
+            UpdateVisualState();
+        }
+    }
+    
+    // Cached references
+    private Renderer starRenderer;
+    private Material originalMaterial;
+    private InputHandler inputHandler;
+    
+    // Cached camera state for returning from detailed view
     private Vector3 previousCameraPosition;
     private Quaternion previousCameraRotation;
     private bool hasSavedCameraState = false;
-
-    // Neighbors in the galaxy graph
-    private List<StarSystemData> neighbors = new List<StarSystemData>();
-
-    // Original material (to restore after highlighting)
-    private Material originalMaterial;
-    private Renderer starRenderer;
+    
+    // List of neighbouring stars (connected by hyperlanes)
+    private System.Collections.Generic.List<StarSystemData> neighbours = 
+        new System.Collections.Generic.List<StarSystemData>();
 
     private void Awake()
     {
-        // Cache the renderer component
+        // Cache renderer reference
         starRenderer = GetComponent<Renderer>();
-        if (starRenderer != null) {
+        if (starRenderer != null)
+        {
             originalMaterial = starRenderer.material;
+        }
+        
+        // Find the input handler
+        inputHandler = FindAnyObjectByType<InputHandler>();
+        if (inputHandler == null)
+        {
+            Debug.LogWarning("InputHandler not found in the scene!", this);
         }
     }
 
-    // Initialize with name and color
+    /// <summary>
+    /// Initialize the star system with a name.
+    /// </summary>
     public void Initialize(string name)
     {
         systemName = name;
         
-        // Set a random star color
-        SetRandomStarColor();
-        
-        // Apply the star color to the renderer
-        ApplyStarColor();
-    }
-
-    // Set a random star color (based on stellar classification)
-    private void SetRandomStarColor()
-    {
-        // Array of common star colors (from blue to red)
-        Color[] starColors = new Color[] {
-            new Color(0.6f, 0.8f, 1.0f),  // Blue
-            new Color(0.9f, 0.9f, 1.0f),  // White-Blue
-            new Color(1.0f, 1.0f, 0.9f),  // White
-            new Color(1.0f, 0.95f, 0.8f), // Yellow-White
-            new Color(1.0f, 0.9f, 0.6f),  // Yellow
-            new Color(1.0f, 0.7f, 0.3f),  // Orange
-            new Color(1.0f, 0.5f, 0.2f)   // Red
-        };
-        
-        // Select a random color
-        starColor = starColors[Random.Range(0, starColors.Length)];
+        // Generate random properties
+        GenerateRandomProperties();
     }
     
-    // Apply the star color to the renderer material
-    private void ApplyStarColor()
+    /// <summary>
+    /// Generate random properties for this star system
+    /// </summary>
+    private void GenerateRandomProperties()
     {
-        if (starRenderer != null)
+        // Random resource value from 1-10
+        systemResourceValue = Random.Range(1, 11);
+        
+        // Random habitability from 0-1
+        systemHabitability = Random.value;
+        
+        // Random star type
+        starType = (StarType)Random.Range(0, System.Enum.GetValues(typeof(StarType)).Length);
+    }
+
+    /// <summary>
+    /// Handles mouse click on this star system.
+    /// </summary>
+    private void OnMouseDown()
+    {
+        // Use the InputHandler to handle the click
+        if (inputHandler != null)
         {
-            // Create a new material instance to avoid modifying the shared material
-            Material newMaterial = new Material(starRenderer.material);
-            newMaterial.color = starColor;
-            starRenderer.material = newMaterial;
-            originalMaterial = newMaterial;
+            inputHandler.HandleObjectClicked(this);
+        }
+        else
+        {
+            // Fallback behavior if input handler not found
+            if (galaxyManager != null)
+            {
+                galaxyManager.HandleStarSelection(this);
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Handle mouse hover enter
+    /// </summary>
+    private void OnMouseEnter()
+    {
+        // Notify the input handler
+        if (inputHandler != null)
+        {
+            inputHandler.HandleObjectHoverEnter(this);
+        }
+    }
+    
+    /// <summary>
+    /// Handle mouse hover exit
+    /// </summary>
+    private void OnMouseExit()
+    {
+        // Notify the input handler
+        if (inputHandler != null)
+        {
+            inputHandler.HandleObjectHoverExit(this);
+        }
+    }
+    
+    /// <summary>
+    /// Gets the type of object this is for the input handler
+    /// </summary>
+    public ClickableObjectType GetObjectType()
+    {
+        return ClickableObjectType.Star;
+    }
+    
+    /// <summary>
+    /// Toggle the selection state
+    /// </summary>
+    public void ToggleSelection()
+    {
+        isSelected = !isSelected;
+        UpdateVisualState();
+    }
+    
+    /// <summary>
+    /// Set the selected state of this star
+    /// </summary>
+    public void SetSelected(bool selected, bool updateVisuals = true)
+    {
+        isSelected = selected;
+        if (updateVisuals)
+        {
+            UpdateVisualState();
+        }
+    }
+    
+    /// <summary>
+    /// Update visual state based on selection
+    /// </summary>
+    private void UpdateVisualState()
+    {
+        if (isSelected)
+        {
+            HighlightSelected();
+        }
+        else
+        {
+            Unhighlight();
         }
     }
 
-    // Set the detailed star system reference
+    /// <summary>
+    /// Highlight this star as selected (called by GalaxyGenerator).
+    /// </summary>
+    public void HighlightSelected()
+    {
+        if (starRenderer != null && galaxyManager != null && galaxyManager.selectedMaterial != null)
+        {
+            starRenderer.material = galaxyManager.selectedMaterial;
+        }
+    }
+
+    /// <summary>
+    /// Highlight this star as a neighbour of the selected star (called by GalaxyGenerator).
+    /// </summary>
+    public void HighlightNeighbour()
+    {
+        if (starRenderer != null && galaxyManager != null && galaxyManager.neighbourMaterial != null)
+        {
+            starRenderer.material = galaxyManager.neighbourMaterial;
+        }
+    }
+
+    /// <summary>
+    /// Remove any highlighting.
+    /// </summary>
+    public void Unhighlight()
+    {
+        if (starRenderer != null && originalMaterial != null)
+        {
+            starRenderer.material = originalMaterial;
+        }
+    }
+
+    /// <summary>
+    /// Add a neighbour star connected by a hyperlane.
+    /// </summary>
+    public void AddNeighbour(StarSystemData neighbour)
+    {
+        if (neighbour != null && !neighbours.Contains(neighbour))
+        {
+            neighbours.Add(neighbour);
+        }
+    }
+
+    /// <summary>
+    /// Remove a neighbour from the connections.
+    /// </summary>
+    public void RemoveNeighbour(StarSystemData neighbour)
+    {
+        if (neighbour != null)
+        {
+            neighbours.Remove(neighbour);
+        }
+    }
+
+    /// <summary>
+    /// Clear all neighbour connections.
+    /// </summary>
+    public void ClearNeighbours()
+    {
+        neighbours.Clear();
+    }
+
+    /// <summary>
+    /// Get reference to all neighbouring stars.
+    /// </summary>
+    public System.Collections.Generic.List<StarSystemData> GetNeighbours()
+    {
+        return neighbours;
+    }
+
+    /// <summary>
+    /// Link this star to a detailed star system view
+    /// </summary>
     public void SetDetailedSystem(StarSystemManager system)
     {
         detailedSystem = system;
     }
 
-    // Store camera position and rotation for later restoration
+    /// <summary>
+    /// Navigate to the detailed view of this star system
+    /// </summary>
+    public void NavigateToStarSystem()
+    {
+        if (galaxyManager == null)
+        {
+            Debug.LogError("Cannot navigate: galaxy manager reference is null");
+            return;
+        }
+
+        // Save camera position before navigating
+        Camera mainCam = Camera.main;
+        if (mainCam != null)
+        {
+            previousCameraPosition = mainCam.transform.position;
+            previousCameraRotation = mainCam.transform.rotation;
+            hasSavedCameraState = true;
+            
+            // Save camera controller state if available
+            CameraController cameraController = mainCam.GetComponent<CameraController>();
+            if (cameraController != null)
+            {
+                // Store the camera state in the galaxy manager for retrieval when returning to galaxy view
+                if (galaxyManager != null)
+                {
+                    galaxyManager.StoreCameraStateForReturn(
+                        cameraController.targetPosition,
+                        cameraController.currentDistance,
+                        cameraController.currentPitch,
+                        cameraController.currentAzimuth
+                    );
+                }
+                
+                // Also store in the detailed system if available
+                if (detailedSystem != null)
+                {
+                    detailedSystem.StoreCameraControllerState(
+                        cameraController.targetPosition,
+                        cameraController.currentDistance,
+                        cameraController.currentPitch,
+                        cameraController.currentAzimuth
+                    );
+                }
+            }
+        }
+        
+        if (detailedSystem != null)
+        {
+            // Tell the galaxy manager to deactivate the galaxy view
+            galaxyManager.DeactivateGalaxyView();
+            
+            // Track this star as the selected star
+            galaxyManager.currentlySelectedStar = this;
+            
+            // Tell galaxy manager which star system is now active
+            galaxyManager.SetCurrentActiveStarSystem(detailedSystem);
+            
+            // Activate the detailed star system
+            detailedSystem.Activate();
+            
+            Debug.Log($"Navigated to star system: {systemName}");
+        }
+        else
+        {
+            Debug.LogWarning($"Star system {systemName} has no detailed view assigned");
+        }
+    }
+
+    /// <summary>
+    /// Return from star system view to galaxy view
+    /// </summary>
+    public void ReturnToGalaxyView()
+    {
+        if (galaxyManager != null)
+        {
+            // Let the galaxy manager handle returning to galaxy view
+            galaxyManager.ActivateGalaxyView();
+            Debug.Log($"Returned to galaxy view from {systemName}");
+        }
+    }
+    
+    /// <summary>
+    /// Store camera state
+    /// </summary>
     public void StorePreviousCameraState(Vector3 position, Quaternion rotation)
     {
         previousCameraPosition = position;
         previousCameraRotation = rotation;
         hasSavedCameraState = true;
     }
-
-    // Get the previously stored camera state
+    
+    /// <summary>
+    /// Get previously stored camera state
+    /// </summary>
     public void GetPreviousCameraState(out Vector3 position, out Quaternion rotation)
     {
         if (hasSavedCameraState)
@@ -104,164 +362,21 @@ public class StarSystemData : MonoBehaviour
         }
         else
         {
-            // Default position/rotation if none was saved
-            position = new Vector3(0, 10, -10); // Default camera position above and behind
-            rotation = Quaternion.Euler(45, 0, 0); // Looking down at an angle
+            position = new Vector3(0, 10, -10); // Default position above
+            rotation = Quaternion.Euler(45, 0, 0); // Looking down at 45 degrees
         }
     }
-    
-    // Called when this star is clicked
-    private void OnMouseDown()
-    {
-        // Inform the galaxy manager about the selection
-        if (galaxyManager != null)
-        {
-            galaxyManager.HandleStarSelection(this);
-            
-            // Check for left mouse button specifically
-            if (Input.GetMouseButton(0))
-            {
-                // Navigate to the detailed star system view
-                NavigateToStarSystem();
-            }
-        }
-    }
-    
-    // Navigate to this star's detailed system view
-    public void NavigateToStarSystem()
-    {
-        if (detailedSystem != null)
-        {
-            // Store current camera position BEFORE any changes are made
-            if (galaxyManager != null && galaxyManager.mainCamera != null)
-            {
-                // Save the current camera position and rotation for later
-                Camera cam = galaxyManager.mainCamera;
-                StorePreviousCameraState(cam.transform.position, cam.transform.rotation);
-                Debug.Log($"Saved camera position before navigating to {systemName}: Position={cam.transform.position}, Rotation={cam.transform.rotation.eulerAngles}");
-                
-                // Store CameraController state if it exists
-                CameraController cameraController = cam.GetComponent<CameraController>();
-                if (cameraController != null)
-                {
-                    Debug.Log($"Saving CameraController target position: {cameraController.targetPosition}");
-                    detailedSystem.StoreCameraControllerState(cameraController.targetPosition, 
-                                                              cameraController.currentDistance, 
-                                                              cameraController.currentPitch, 
-                                                              cameraController.currentAzimuth);
-                }
-            }
-            
-            // If we've already generated this star system, just activate it
-            detailedSystem.Activate();
-            
-            // Center the camera on the star - do this AFTER activation
-            if (galaxyManager != null && galaxyManager.mainCamera != null)
-            {
-                // Get the star position
-                Vector3 starPosition = detailedSystem.GetStarPosition();
-                Debug.Log($"Star position in {systemName}: {starPosition}");
-                
-                // Check if camera has a CameraController component
-                Camera cam = galaxyManager.mainCamera;
-                CameraController cameraController = cam.GetComponent<CameraController>();
-                
-                if (cameraController != null)
-                {
-                    // Use the camera controller to position the camera
-                    cameraController.targetPosition = starPosition;
-                    cameraController.initialDistance = 20f;
-                    cameraController.initialPitch = 45f;
-                    cameraController.targetAzimuth = 0f;
-                    
-                    // Force immediate update of camera position
-                    cameraController.ResetCamera();
-                    
-                    Debug.Log($"Camera positioned using CameraController to look at star at {starPosition}");
-                }
-                else
-                {
-                    // Fallback to direct camera positioning if no controller exists
-                    float distance = 20f; // Distance from the star
-                    
-                    // Position camera to look at the star from an angle
-                    Vector3 cameraPosition = starPosition + new Vector3(0, distance * 0.5f, -distance);
-                    cam.transform.position = cameraPosition;
-                    
-                    // Look at the star
-                    cam.transform.LookAt(starPosition);
-                    
-                    Debug.Log($"Camera positioned at {cam.transform.position} looking at star at {starPosition}");
-                }
-            }
-            
-            // Deactivate the galaxy view
-            if (galaxyManager != null)
-            {
-                galaxyManager.DeactivateGalaxyView();
-                galaxyManager.SetCurrentActiveStarSystem(detailedSystem);
-            }
-        }
-        else
-        {
-            Debug.LogError($"Star system for {systemName} was not pre-generated", this);
-        }
-    }
-    
-    // Return to galaxy view
-    public void ReturnToGalaxyView()
-    {
-        if (detailedSystem != null)
-        {
-            detailedSystem.Deactivate();
-        }
-        
-        // Activate the galaxy view
-        if (galaxyManager != null)
-        {
-            galaxyManager.ActivateGalaxyView();
-        }
-    }
+}
 
-    // Add a neighboring star
-    public void AddNeighbour(StarSystemData neighbour)
-    {
-        if (neighbour != null && !neighbors.Contains(neighbour))
-        {
-            neighbors.Add(neighbour);
-        }
-    }
-    
-    // Clear all neighbors
-    public void ClearNeighbours()
-    {
-        neighbors.Clear();
-    }
-    
-    // Highlight this star as selected
-    public void HighlightSelected()
-    {
-        if (starRenderer != null && galaxyManager?.selectedMaterial != null)
-        {
-            starRenderer.material = galaxyManager.selectedMaterial;
-        }
-    }
-    
-    // Highlight this star as a neighbor
-    public void HighlightNeighbour()
-    {
-        if (starRenderer != null && galaxyManager?.neighbourMaterial != null)
-        {
-            starRenderer.material = galaxyManager.neighbourMaterial;
-        }
-    }
-    
-    // Remove highlighting
-    public void Unhighlight()
-    {
-        if (starRenderer != null && originalMaterial != null)
-        {
-            starRenderer.material = originalMaterial;
-        }
-    }
+/// <summary>
+/// Types of stars in the galaxy
+/// </summary>
+public enum StarType
+{
+    MainSequence,
+    RedGiant,
+    WhiteDwarf,
+    Neutron,
+    BlackHole,
+    Binary
 }

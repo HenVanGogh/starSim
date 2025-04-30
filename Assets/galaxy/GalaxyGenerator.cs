@@ -606,13 +606,12 @@ public class GalaxyGenerator : MonoBehaviour
     /// <summary>
     /// Tests pathfinding functions between two star systems and logs the results
     /// </summary>
-    // Modify TestPathfinding method to store the path for gizmo drawing
     private void TestPathfinding(StarSystemData starA, StarSystemData starB)
     {
         Debug.Log($"<color=#FFFF00>=== PATHFINDING TEST ===</color>");
         Debug.Log($"<color=#FFFF00>From: {starA.systemName} To: {starB.systemName}</color>");
 
-        // Test hyperlane distance
+        // Test hyperlane distance using the utility function
         int distance = GetHyperlaneDistance(starA, starB);
         if (distance >= 0)
         {
@@ -623,7 +622,7 @@ public class GalaxyGenerator : MonoBehaviour
             Debug.Log($"<color=#FF0000>No path exists between these stars!</color>");
         }
 
-        // Test shortest path
+        // Test shortest path using the utility function
         List<StarSystemData> path = GetShortestPath(starA, starB);
 
         if (path.Count > 0)
@@ -659,6 +658,7 @@ public class GalaxyGenerator : MonoBehaviour
 
         Debug.Log($"<color=#FFFF00>=== TEST COMPLETE ===</color>");
     }
+
     /// <summary>
     /// Triggers the generation of the Voronoi overlay using the assigned controller interface.
     /// Passes the current list of generated star systems to the controller.
@@ -794,211 +794,19 @@ public class GalaxyGenerator : MonoBehaviour
      }
     /// <summary>
     /// Calculates the shortest path distance (number of hyperlane jumps) between two star systems.
-    /// Uses Dijkstra's algorithm to find the shortest path through the galaxy graph.
+    /// Uses the generic utility function from PathfindingUtils.
     /// </summary>
-    /// <param name="startStar">The starting star system.</param>
-    /// <param name="endStar">The destination star system.</param>
-    /// <returns>
-    /// The minimum number of hyperlane jumps required to travel from startStar to endStar.
-    /// Returns -1 if no path exists between the stars (disconnected graph).
-    /// Returns 0 if startStar and endStar are the same star.
-    /// </returns>
     public int GetHyperlaneDistance(StarSystemData startStar, StarSystemData endStar)
     {
-        // Quick validation
-        if (startStar == null || endStar == null)
-        {
-            Debug.LogError("Cannot calculate distance: One or both stars are null.", this);
-            return -1;
-        }
-
-        // If the same star is provided, distance is 0
-        if (startStar == endStar)
-        {
-            return 0;
-        }
-
-        // Check if both stars are in our galaxy graph
-        if (!galaxyGraph.ContainsKey(startStar) || !galaxyGraph.ContainsKey(endStar))
-        {
-            Debug.LogWarning($"One or both stars ({startStar.systemName}, {endStar.systemName}) not found in galaxy graph.", this);
-            return -1;
-        }
-
-        // Set up Dijkstra's algorithm
-        Dictionary<StarSystemData, int> distances = new Dictionary<StarSystemData, int>();
-        HashSet<StarSystemData> unvisited = new HashSet<StarSystemData>();
-
-        // Initialize distances: 0 for start, "infinity" for others
-        foreach (var star in starSystems)
-        {
-            if (star == startStar)
-                distances[star] = 0;
-            else
-                distances[star] = int.MaxValue;
-
-            unvisited.Add(star);
-        }
-
-        // Process nodes until we've either found our target or exhausted all reachable nodes
-        while (unvisited.Count > 0)
-        {
-            // Find unvisited star with smallest distance
-            StarSystemData current = null;
-            int smallestDistance = int.MaxValue;
-
-            foreach (var star in unvisited)
-            {
-                if (distances[star] < smallestDistance)
-                {
-                    smallestDistance = distances[star];
-                    current = star;
-                }
-            }
-
-            // If smallest distance is "infinity", there's no path to the remaining nodes
-            if (current == null || smallestDistance == int.MaxValue)
-            {
-                break;
-            }
-
-            // If we've reached our destination, return the distance
-            if (current == endStar)
-            {
-                return distances[endStar];
-            }
-
-            // Remove current from unvisited
-            unvisited.Remove(current);
-
-            // Check all neighbors of current node
-            if (galaxyGraph.TryGetValue(current, out var neighbors))
-            {
-                foreach (var neighbor in neighbors)
-                {
-                    // Skip null neighbors
-                    if (neighbor == null)
-                        continue;
-
-                    // For hyperlane jumps, each edge has a "weight" of 1
-                    int distanceThroughCurrent = distances[current] + 1;
-
-                    // If we found a shorter path to this neighbor
-                    if (distanceThroughCurrent < distances[neighbor])
-                    {
-                        distances[neighbor] = distanceThroughCurrent;
-                    }
-                }
-            }
-        }
-
-        // If we got here without returning, there's no path to the destination
-        return -1;
+        return PathfindingUtils.GetShortestDistance(startStar, endStar, galaxyGraph, starSystems);
     }
 
     /// <summary>
     /// Returns the full path of star systems that forms the shortest route between two star systems.
+    /// Uses the generic utility function from PathfindingUtils.
     /// </summary>
-    /// <param name="startStar">The starting star system.</param>
-    /// <param name="endStar">The destination star system.</param>
-    /// <returns>
-    /// A list containing the sequence of star systems forming the shortest path, including start and end stars.
-    /// Returns an empty list if no path exists or if input parameters are invalid.
-    /// </returns>
     public List<StarSystemData> GetShortestPath(StarSystemData startStar, StarSystemData endStar)
     {
-        List<StarSystemData> path = new List<StarSystemData>();
-
-        // Quick validation
-        if (startStar == null || endStar == null)
-        {
-            Debug.LogError("Cannot find path: One or both stars are null.", this);
-            return path;
-        }
-
-        // If the same star is provided, the path is just that star
-        if (startStar == endStar)
-        {
-            path.Add(startStar);
-            return path;
-        }
-
-        // Check if both stars are in our galaxy graph
-        if (!galaxyGraph.ContainsKey(startStar) || !galaxyGraph.ContainsKey(endStar))
-        {
-            Debug.LogWarning($"One or both stars ({startStar.systemName}, {endStar.systemName}) not found in galaxy graph.", this);
-            return path;
-        }
-
-        // Set up for Dijkstra's algorithm with path tracking
-        Dictionary<StarSystemData, int> distances = new Dictionary<StarSystemData, int>();
-        Dictionary<StarSystemData, StarSystemData> previous = new Dictionary<StarSystemData, StarSystemData>();
-        HashSet<StarSystemData> unvisited = new HashSet<StarSystemData>();
-
-        // Initialize
-        foreach (var star in starSystems)
-        {
-            distances[star] = (star == startStar) ? 0 : int.MaxValue;
-            previous[star] = null;
-            unvisited.Add(star);
-        }
-
-        // Process nodes until we've either found our target or exhausted all reachable nodes
-        while (unvisited.Count > 0)
-        {
-            // Find unvisited star with smallest distance
-            StarSystemData current = null;
-            int smallestDistance = int.MaxValue;
-
-            foreach (var star in unvisited)
-            {
-                if (distances[star] < smallestDistance)
-                {
-                    smallestDistance = distances[star];
-                    current = star;
-                }
-            }
-
-            // If smallest distance is "infinity", there's no path to the remaining nodes
-            if (current == null || smallestDistance == int.MaxValue)
-            {
-                break;
-            }
-
-            // If we've reached our destination, reconstruct the path
-            if (current == endStar)
-            {
-                // Start from the end and work backwards
-                StarSystemData pathNode = endStar;
-                while (pathNode != null)
-                {
-                    path.Insert(0, pathNode); // Add to start of list to get correct order
-                    pathNode = previous[pathNode];
-                }
-                return path;
-            }
-
-            unvisited.Remove(current);
-
-            // Check all neighbors
-            if (galaxyGraph.TryGetValue(current, out var neighbors))
-            {
-                foreach (var neighbor in neighbors)
-                {
-                    if (neighbor == null) continue;
-
-                    int distanceThroughCurrent = distances[current] + 1;
-
-                    if (distanceThroughCurrent < distances[neighbor])
-                    {
-                        distances[neighbor] = distanceThroughCurrent;
-                        previous[neighbor] = current; // Track the path
-                    }
-                }
-            }
-        }
-
-        // No path found
-        return path; // Empty list
+        return PathfindingUtils.GetShortestPath(startStar, endStar, galaxyGraph, starSystems);
     }
 }

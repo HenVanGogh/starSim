@@ -10,6 +10,8 @@ public class GalaxyGenerator : MonoBehaviour
     [Header("Generation Settings")]
     [Tooltip("Prefab used to represent a star system. MUST have a Renderer and ideally a StarSystemData component.")]
     public GameObject starPrefab;
+    [Tooltip("Prefab used for planets in detailed star systems. Should have a RandomPlanetGenerator component.")]
+    public GameObject planetPrefab;
     [Tooltip("Material used for the hyperlanes. Should support transparency.")]
     public Material hyperlaneMaterial;
     [Tooltip("Number of star systems to generate.")]
@@ -46,6 +48,9 @@ public class GalaxyGenerator : MonoBehaviour
     public MonoBehaviour voronoiOverlayControllerComponent; // Assign in inspector (e.g., the GameObject holding VoronoiOverlayGenerator)
     private IVoronoiOverlayController voronoiOverlayController; // Internal reference to the interface
 
+    [Header("Navigation")]
+    [Tooltip("Main camera used for both galaxy and star system views.")]
+    public Camera mainCamera;
 
     // --- Private Variables ---
     private List<StarSystemData> starSystems = new List<StarSystemData>();
@@ -63,6 +68,10 @@ public class GalaxyGenerator : MonoBehaviour
     private Color pathGizmoColor = new Color(1f, 0.5f, 0f, 0.8f); // Orange color for path
     private float gizmoSphereRadius = 0.3f;
     private float gizmoLineWidth = 0.1f;
+
+    // Tracking current active state
+    private bool isGalaxyViewActive = true;
+    private StarSystemManager currentActiveStarSystem = null;
 
     void Awake()
     {
@@ -94,8 +103,7 @@ public class GalaxyGenerator : MonoBehaviour
                  Debug.LogWarning("Voronoi Overlay Controller Component is not assigned in the inspector. Voronoi overlay will not be generated.", this);
             }
 
-            // Set the static reference in StarSystemData IF StarSystemData needs it
-            // Make sure StarSystemData actually has this static field and uses it appropriately.
+            // Set the static reference in StarSystemData
             StarSystemData.galaxyManager = this;
         }
     }
@@ -106,6 +114,7 @@ public class GalaxyGenerator : MonoBehaviour
         // --- Input Validation ---
         // Check essential prefabs and materials
         if (starPrefab == null) { Debug.LogError("Star Prefab is not assigned! Aborting generation.", this); return; }
+        if (planetPrefab == null) { Debug.LogError("Planet Prefab is not assigned! Star systems cannot be generated.", this); /* Continue anyway */ }
         if (hyperlaneMaterial == null) { Debug.LogError("Hyperlane Material is not assigned! Aborting generation.", this); return; }
         if (selectedMaterial == null) { Debug.LogError("Selected Material is not assigned! Highlighting may fail.", this); /* Continue? */ }
         if (neighbourMaterial == null) { Debug.LogError("Neighbour Material is not assigned! Highlighting may fail.", this); /* Continue? */ }
@@ -114,9 +123,171 @@ public class GalaxyGenerator : MonoBehaviour
         if (starPrefab.GetComponent<Collider>() == null) { Debug.LogWarning("Star Prefab should ideally have a Collider component for selection.", this); }
         if (starPrefab.GetComponent<StarSystemData>() == null) { Debug.LogWarning("Star Prefab doesn't have StarSystemData component attached. It will be added automatically, but consider adding it to the prefab.", this); }
 
+        // Validate planet prefab components
+        if (planetPrefab != null && planetPrefab.GetComponent<RandomPlanetGenerator>() == null) {
+            Debug.LogWarning("Planet Prefab should have a RandomPlanetGenerator component for proper visualization. It will use default appearance.", this);
+        }
+
+        // Find main camera if not set
+        if (mainCamera == null) {
+            mainCamera = Camera.main;
+            if (mainCamera == null) {
+                Debug.LogError("Main Camera not found. Please assign it in the inspector.", this);
+            }
+        }
 
         // --- Generate Galaxy on Start ---
         GenerateFullGalaxy(); // Encapsulate all generation steps
+
+        // Pre-generate all star systems but keep them inactive
+        PreGenerateStarSystems();
+
+        // Ensure galaxy view is active initially
+        isGalaxyViewActive = true;
+    }
+
+    void Update()
+    {
+        // Check for ESC key press to return to galaxy view
+        if (Input.GetKeyDown(KeyCode.Escape) && !isGalaxyViewActive)
+        {
+            ReturnToGalaxyView();
+        }
+    }
+
+    // --- Navigation Methods ---
+
+    /// <summary>
+    /// Deactivates the galaxy view when navigating to a star system
+    /// </summary>
+    public void DeactivateGalaxyView()
+    {
+        isGalaxyViewActive = false;
+
+        // Store current camera position before switching views
+        if (mainCamera != null)
+        {
+            // Store camera position and rotation in the star system
+            if (currentActiveStarSystem != null)
+            {
+                currentActiveStarSystem.StorePreviousCameraState(mainCamera.transform.position, mainCamera.transform.rotation);
+            }
+        }
+
+        // Hide all galaxy objects but keep the script active
+        if (hyperlaneContainer != null)
+            hyperlaneContainer.SetActive(false);
+
+        // Hide all stars
+        foreach (var star in starSystems)
+        {
+            if (star != null)
+                star.gameObject.SetActive(false);
+        }
+
+        // Also deactivate the voronoi overlay controller component if it exists
+        if (voronoiOverlayControllerComponent != null)
+            voronoiOverlayControllerComponent.gameObject.SetActive(false);
+
+        Debug.Log("Galaxy view deactivated");
+    }
+
+    /// <summary>
+    /// Activates the galaxy view when returning from a star system
+    /// </summary>
+    public void ActivateGalaxyView()
+    {
+        isGalaxyViewActive = true;
+
+        // If any star system is active, get camera position before deactivating it
+        Vector3 previousPosition = Vector3.zero;
+        Quaternion previousRotation = Quaternion.identity;
+        Vector3 previousTargetPosition = Vector3.zero;
+        float previousDistance = 15f;
+        float previousPitch = 45f;
+        float previousAzimuth = 0f;
+        bool hasStoredCamera = false;
+        bool hasStoredCameraController = false;
+        
+        if (currentActiveStarSystem != null && currentlySelectedStar != null)
+        {
+            // Get stored camera position from the selected star
+            currentlySelectedStar.GetPreviousCameraState(out previousPosition, out previousRotation);
+            hasStoredCamera = true;
+            
+            // Get stored camera controller state if available
+            currentActiveStarSystem.GetCameraControllerState(out previousTargetPosition, out previousDistance, out previousPitch, out previousAzimuth);
+            hasStoredCameraController = true;
+            
+            // Deactivate the star system first
+            currentActiveStarSystem.Deactivate();
+            currentActiveStarSystem = null;
+        }
+
+        // Show all galaxy objects
+        if (hyperlaneContainer != null)
+            hyperlaneContainer.SetActive(true);
+            
+        // Show all stars
+        foreach (var star in starSystems)
+        {
+            if (star != null)
+                star.gameObject.SetActive(true);
+        }
+        
+        // Also reactivate the voronoi overlay controller component
+        if (voronoiOverlayControllerComponent != null)
+            voronoiOverlayControllerComponent.gameObject.SetActive(true);
+        
+        // Restore camera AFTER activating the galaxy view
+        if (mainCamera != null)
+        {
+            CameraController cameraController = mainCamera.GetComponent<CameraController>();
+            
+            if (cameraController != null && hasStoredCameraController)
+            {
+                // Restore camera controller state
+                cameraController.targetPosition = previousTargetPosition;
+                cameraController.currentDistance = previousDistance;
+                cameraController.currentPitch = previousPitch;
+                cameraController.currentAzimuth = previousAzimuth;
+                cameraController.ResetCamera();
+                Debug.Log($"Restored camera controller to target: {previousTargetPosition}, distance: {previousDistance}");
+            }
+            else if (hasStoredCamera)
+            {
+                // Fall back to direct camera positioning if no controller or state
+                mainCamera.transform.position = previousPosition;
+                mainCamera.transform.rotation = previousRotation;
+                Debug.Log($"Restored camera to position: {previousPosition}, rotation: {previousRotation.eulerAngles}");
+            }
+        }
+        
+        Debug.Log("Galaxy view activated");
+    }
+
+    /// <summary>
+    /// Called when ESC is pressed or when a star system wants to return to the galaxy
+    /// </summary>
+    public void ReturnToGalaxyView()
+    {
+        if (currentlySelectedStar != null)
+        {
+            currentlySelectedStar.ReturnToGalaxyView();
+        }
+        else
+        {
+            // Direct activation if we don't have a selected star
+            ActivateGalaxyView();
+        }
+    }
+
+    /// <summary>
+    /// Sets the current active star system for tracking
+    /// </summary>
+    public void SetCurrentActiveStarSystem(StarSystemManager starSystem)
+    {
+        currentActiveStarSystem = starSystem;
     }
 
     /// <summary>
@@ -808,5 +979,45 @@ public class GalaxyGenerator : MonoBehaviour
     public List<StarSystemData> GetShortestPath(StarSystemData startStar, StarSystemData endStar)
     {
         return PathfindingUtils.GetShortestPath(startStar, endStar, galaxyGraph, starSystems);
+    }
+
+    /// <summary>
+    /// Pre-generates all star systems for all stars but keeps them inactive
+    /// </summary>
+    private void PreGenerateStarSystems()
+    {
+        if (starSystems.Count == 0 || planetPrefab == null)
+        {
+            Debug.LogWarning("Cannot pre-generate star systems: No stars generated or planet prefab missing.");
+            return;
+        }
+
+        Debug.Log($"Pre-generating {starSystems.Count} star systems...");
+        
+        foreach (StarSystemData star in starSystems)
+        {
+            if (star == null) continue;
+            
+            // Create a new GameObject to contain the star system
+            GameObject starSystemObj = new GameObject($"StarSystem_{star.systemName}");
+            
+            // Position is irrelevant at this point as it will be positioned when activated
+            starSystemObj.transform.position = Vector3.zero;
+            
+            // Add the StarSystemManager component
+            StarSystemManager starSystemManager = starSystemObj.AddComponent<StarSystemManager>();
+            
+            // Configure the star system
+            starSystemManager.starPrefab = starPrefab;
+            starSystemManager.planetPrefab = planetPrefab;
+            
+            // Initialize with star data (this will also generate planets)
+            starSystemManager.Initialize(star);
+            
+            // Store reference in the star data for later access
+            star.SetDetailedSystem(starSystemManager);
+        }
+        
+        Debug.Log("All star systems pre-generated and set to inactive");
     }
 }

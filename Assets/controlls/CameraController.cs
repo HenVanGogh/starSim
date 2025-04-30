@@ -29,27 +29,49 @@ public class CameraController : MonoBehaviour
     public float zoomSpeed = 10f;
     [Tooltip("Sensitivity of camera rotation with right mouse drag.")]
     public float rotateSpeed = 100f;
-     [Tooltip("Sensitivity of camera panning with middle mouse drag.")]
+    [Tooltip("Sensitivity of camera panning with middle mouse drag.")]
     public float panSpeed = 0.1f;
     [Tooltip("Speed at which the azimuth angle snaps back to its target value.")]
     public float azimuthSnapSpeed = 5f;
 
-    // --- Private Variables ---
-    private float currentDistance;
-    private float currentPitch;
-    private float currentAzimuth;
+    // Private variables with public accessors
+    private float _currentDistance;
+    private float _currentPitch;
+    private float _currentAzimuth;
+
+    // Public accessors for camera state
+    public float currentDistance {
+        get { return _currentDistance; }
+        set { _currentDistance = Mathf.Clamp(value, minDistance, maxDistance); }
+    }
+    
+    public float currentPitch {
+        get { return _currentPitch; }
+        set { _currentPitch = Mathf.Clamp(value, minPitch, maxPitch); }
+    }
+    
+    public float currentAzimuth {
+        get { return _currentAzimuth; }
+        set { _currentAzimuth = ClampAngle(value, -360f, 360f); }
+    }
 
     private bool isPanning = false;
     private bool isRotating = false;
     private Vector3 lastMousePosition;
 
+    // Method to reset camera position based on current parameters
+    public void ResetCamera()
+    {
+        // Use current values for immediate update
+        ApplyCameraTransform();
+    }
 
     void Start()
     {
         // Initialize camera state
-        currentDistance = Mathf.Clamp(initialDistance, minDistance, maxDistance);
-        currentPitch = Mathf.Clamp(initialPitch, minPitch, maxPitch);
-        currentAzimuth = targetAzimuth; // Start at the target azimuth
+        _currentDistance = Mathf.Clamp(initialDistance, minDistance, maxDistance);
+        _currentPitch = Mathf.Clamp(initialPitch, minPitch, maxPitch);
+        _currentAzimuth = targetAzimuth; // Start at the target azimuth
 
         // Set initial position and rotation based on parameters
         ApplyCameraTransform();
@@ -90,8 +112,8 @@ public class CameraController : MonoBehaviour
         if (Mathf.Abs(scrollDelta) > 0.01f)
         {
             // Adjust distance based on scroll, clamping within limits
-            currentDistance -= scrollDelta * zoomSpeed * (currentDistance / maxDistance * 2f); // Make zoom faster when further away
-            currentDistance = Mathf.Clamp(currentDistance, minDistance, maxDistance);
+            _currentDistance -= scrollDelta * zoomSpeed * (_currentDistance / maxDistance * 2f); // Make zoom faster when further away
+            _currentDistance = Mathf.Clamp(_currentDistance, minDistance, maxDistance);
         }
 
         // --- Panning (Middle Mouse Button) ---
@@ -118,7 +140,7 @@ public class CameraController : MonoBehaviour
             camRight.Normalize();
 
             // Pan amount depends on distance to make it feel consistent
-            float panFactor = panSpeed * (currentDistance / maxDistance);
+            float panFactor = panSpeed * (_currentDistance / maxDistance);
             Vector3 panOffset = (camRight * -mouseDelta.x + camUp * -mouseDelta.y) * panFactor;
 
             targetPosition += panOffset;
@@ -133,7 +155,7 @@ public class CameraController : MonoBehaviour
             isRotating = true;
             lastMousePosition = Input.mousePosition;
         }
-         if (Input.GetMouseButtonUp(1)) // Right mouse button up
+        if (Input.GetMouseButtonUp(1)) // Right mouse button up
         {
             isRotating = false;
         }
@@ -143,20 +165,20 @@ public class CameraController : MonoBehaviour
             Vector3 mouseDelta = Input.mousePosition - lastMousePosition;
 
             // Adjust pitch and azimuth based on mouse movement
-            currentAzimuth += mouseDelta.x * rotateSpeed * Time.deltaTime;
-            currentPitch -= mouseDelta.y * rotateSpeed * Time.deltaTime; // Inverted Y
+            _currentAzimuth += mouseDelta.x * rotateSpeed * Time.deltaTime;
+            _currentPitch -= mouseDelta.y * rotateSpeed * Time.deltaTime; // Inverted Y
 
             // Clamp pitch within limits
-            currentPitch = Mathf.Clamp(currentPitch, minPitch, maxPitch);
+            _currentPitch = Mathf.Clamp(_currentPitch, minPitch, maxPitch);
 
             // Azimuth wraps around (optional, but common)
-            currentAzimuth = ClampAngle(currentAzimuth, -360f, 360f); // Keep it within reasonable bounds
+            _currentAzimuth = ClampAngle(_currentAzimuth, -360f, 360f); // Keep it within reasonable bounds
 
             lastMousePosition = Input.mousePosition;
         }
         else // Not rotating, snap azimuth back
         {
-            currentAzimuth = Mathf.LerpAngle(currentAzimuth, targetAzimuth, Time.deltaTime * azimuthSnapSpeed);
+            _currentAzimuth = Mathf.LerpAngle(_currentAzimuth, targetAzimuth, Time.deltaTime * azimuthSnapSpeed);
         }
     }
 
@@ -166,18 +188,18 @@ public class CameraController : MonoBehaviour
     void ApplyCameraTransform()
     {
         // Calculate rotation based on pitch and azimuth
-        Quaternion rotation = Quaternion.Euler(currentPitch, currentAzimuth, 0f);
+        Quaternion rotation = Quaternion.Euler(_currentPitch, _currentAzimuth, 0f);
 
         // Calculate position: start at target, move back by distance along rotation's direction
         Vector3 direction = rotation * Vector3.forward;
-        Vector3 position = targetPosition - direction * currentDistance;
+        Vector3 position = targetPosition - direction * _currentDistance;
 
         // Apply the calculated transform
         transform.position = position;
         transform.rotation = rotation;
     }
 
-     /// <summary>
+    /// <summary>
     /// Clamps an angle to the range [-360, 360] degrees.
     /// </summary>
     public static float ClampAngle(float angle, float min, float max)
